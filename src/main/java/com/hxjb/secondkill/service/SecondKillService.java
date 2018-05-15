@@ -31,18 +31,26 @@ public class SecondKillService {
             @Override
             public <K, V> String execute(RedisOperations<K, V> redisOperations) throws DataAccessException {
                 String result = "0";
+                // 监听orderCount字段 如果在事务提交的时候发现有其它client修改了orderCount值的话
+                // 提交就会失败 List<Object> exec 就会返回null
                 template.watch("orderCount");
+                // redis中get set操作具有原子性不用担心并发读写问题
                 String orderCount = template.opsForValue().get("orderCount");
                 Integer count = Integer.valueOf(orderCount);
                 if (count > 0) {
+                    // 此处我们利用redis set 处理一个用户只能购买一件商品
                     if (template.opsForSet().isMember("orderInfo",userId)) {
                         logger.info("不能重复抢购");
                         result = "不能重复抢购";
                         return result;
                     }
+                    // 开启事务
                     redisOperations.multi();
+                    // 库存减1
                     template.opsForValue().increment("orderCount", -1);
+                    // 提交事务
                     List<Object> exec = redisOperations.exec();
+                    // 提交事务失败则进行重新提交请求
                     if (exec == null || exec.size() == 0) {
                         // logger.info("并发冲突执行抢购失败逻辑--------");
                         buy(userId);
@@ -52,10 +60,11 @@ public class SecondKillService {
                             Map<String, Object> payload = new HashMap<>();
                             payload.put("userId", userId);
                             template.opsForSet().add("orderInfo", userId);
+                            // 同步改异步，这块选择rabbitmq
                             secKillSender.send(payload);
                             result = o + "";
                         }
-                        // 当最会一件商品是清空购买记录set
+                        // 当最后一件商品被购买后清空购买记录set
                         if(count == 1){
                             template.delete("orderInfo");
                         }
