@@ -5,6 +5,7 @@ import com.hxjb.secondkill.service.SecondKillService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
@@ -16,8 +17,12 @@ public class SecondKillController {
     SecondKillService secondKillService;
 
     @RequestMapping(value = "/secondKill", method = RequestMethod.GET)
-    public Mono<String> secondKill(String userId) {
-        return Mono.create(item -> item.success(secondKillService.buy(userId)));
+    public Mono<String> secondKill(
+            String goodsId,
+            String userId,
+            @RequestParam(defaultValue = "1") Integer limit
+    ) {
+        return Mono.create(item -> item.success(secondKillService.buy(goodsId, userId, limit)));
     }
 
 
