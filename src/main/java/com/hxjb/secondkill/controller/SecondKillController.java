@@ -18,11 +18,18 @@ public class SecondKillController {
 
     @RequestMapping(value = "/secondKill", method = RequestMethod.GET)
     public Mono<String> secondKill(
+            String orderNum,
             String goodsId,
             String userId,
             @RequestParam(defaultValue = "1") Integer limit
     ) {
-        return Mono.create(item -> item.success(secondKillService.buy(goodsId, userId, limit)));
+        if (null != orderNum && "1".equals(secondKillService.getOrderState(orderNum,userId))) {
+            return Mono.empty();
+        }
+        if (!secondKillService.checkBuyLimit(goodsId,userId,limit)) {
+            return Mono.justOrEmpty("您已经超过购买限制了");
+        }
+        return Mono.create(item -> item.success(secondKillService.buy(goodsId, userId)));
     }
 
 

@@ -1,6 +1,7 @@
 package com.hxjb.secondkill.service;
 
 import com.hxjb.secondkill.mq.SecKillSender;
+import com.hxjb.secondkill.util.SnowflakeIdWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +29,7 @@ public class SecondKillService {
     SecKillSender secKillSender;
 
 
-    public String buy(String goodsId, String userId, Integer limit) {
+    public String buy(String goodsId, String userId) {
         String stockKey = keyPrefix + ":stock:" + goodsId;
         String buyListKey = keyPrefix + ":buyList:" + goodsId;
         return template.execute(new SessionCallback<String>() {
@@ -42,14 +43,6 @@ public class SecondKillService {
                 String orderCount = template.opsForValue().get(stockKey);
                 Integer count = Integer.valueOf(orderCount);
                 if (count > 0) {
-                    // 此处我们利用redis set 处理一个用户只能购买固定件数件商品
-                    List<String> buyList = template.opsForList().range(buyListKey, 0, -1);
-
-                    if (buyList.stream().filter(item  -> item.equals(userId)).count() >= limit) {
-                        logger.info("不能重复抢购");
-                        result = "不能重复抢购";
-                        return result;
-                    }
                     // 开启事务
                     redisOperations.multi();
                     // 库存减1
@@ -59,14 +52,20 @@ public class SecondKillService {
                     // 提交事务失败则进行重新提交请求
                     if (exec == null || exec.size() == 0) {
                         // logger.info("并发冲突执行抢购失败逻辑--------");
-                        buy(goodsId, userId, limit);
+                        buy(goodsId, userId);
                     } else {
                         for (Object o : exec) {
                             logger.info("抢购成功，还剩--->" + o);
+                            SnowflakeIdWorker idWorker = new SnowflakeIdWorker(0, 0);
+                            long orderNum = idWorker.nextId();
+                            template.opsForList().leftPush(buyListKey, userId);
+                            // 添加默认订单状态到redis中
+                            template.opsForValue().set("orderState:" + userId + ":" + orderNum, "1");
+                            // 同步改异步，这块选择rabbitmq
                             Map<String, Object> payload = new HashMap<>();
                             payload.put("userId", userId);
-                            template.opsForList().leftPush(buyListKey, userId);
-                            // 同步改异步，这块选择rabbitmq
+                            payload.put("goodsId", goodsId);
+                            payload.put("orderNum", orderNum);
                             secKillSender.send(payload);
                             result = o + "";
                         }
@@ -77,5 +76,22 @@ public class SecondKillService {
                 return result;
             }
         });
+    }
+
+    public boolean checkBuyLimit(String goodsId, String userId, Integer limit) {
+        String buyListKey = keyPrefix + ":buyList:" + goodsId;
+        // 此处我们利用redis set 处理一个用户只能购买固定件数件商品
+        List<String> buyList = template.opsForList().range(buyListKey, 0, -1);
+
+        if (buyList.stream().filter(item -> item.equals(userId)).count() >= limit) {
+            logger.info("不能重复抢购");
+            return false;
+        }
+        return true;
+    }
+
+    public String getOrderState(String orderNum, String userId) {
+        String key = "orderState:" + userId + ":" + orderNum;
+        return template.opsForValue().get(key);
     }
 }
