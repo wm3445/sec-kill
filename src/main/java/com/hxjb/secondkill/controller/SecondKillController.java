@@ -23,16 +23,16 @@ public class SecondKillController {
             String userId,
             @RequestParam(defaultValue = "1") Integer limit
     ) {
-        if (!secondKillService.checkIsSelling(goodsId)){
-            return Mono.empty();
-        }
-        if (null != orderNum && "1".equals(secondKillService.getOrderState(orderNum,userId))) {
-            return Mono.empty();
-        }
+//        if (!secondKillService.checkIsSelling(goodsId)){
+//            return Mono.empty();
+//        }
+//        if (null != orderNum && "1".equals(secondKillService.getOrderState(orderNum,userId))) {
+//            return Mono.empty();
+//        }
         if (!secondKillService.checkBuyLimit(goodsId,userId,limit)) {
             return Mono.justOrEmpty("您已经超过购买限制了");
         }
-        return Mono.create(item -> item.success(secondKillService.makeOrder(goodsId, userId)));
+        return secondKillService.makeOrder(goodsId, userId);
     }
 
 

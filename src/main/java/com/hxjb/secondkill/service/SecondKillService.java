@@ -11,6 +11,7 @@ import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -32,12 +33,12 @@ public class SecondKillService {
     SecKillSender secKillSender;
 
 
-    public String makeOrder(String goodsId, String userId) {
+    public Mono<String> makeOrder(String goodsId, String userId) {
         String stockKey = keyPrefix + ":stock:" + goodsId;
         String buyListKey = keyPrefix + ":buyList:" + goodsId;
-        return template.execute(new SessionCallback<String>() {
+        return template.execute(new SessionCallback<Mono<String>>() {
             @Override
-            public <K, V> String execute(RedisOperations<K, V> redisOperations) throws DataAccessException {
+            public <K, V> Mono<String> execute(RedisOperations<K, V> redisOperations) throws DataAccessException {
                 String result = "0";
                 // 监听orderCount字段 如果在事务提交的时候发现有其它client修改了orderCount值的话
                 // 提交就会失败 List<Object> exec 就会返回null
@@ -76,7 +77,7 @@ public class SecondKillService {
                 } else {
                     logger.info("卖完了");
                 }
-                return result;
+                return Mono.justOrEmpty(result);
             }
         });
     }
