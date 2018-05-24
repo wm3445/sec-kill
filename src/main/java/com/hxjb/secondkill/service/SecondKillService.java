@@ -1,6 +1,7 @@
 package com.hxjb.secondkill.service;
 
 import com.hxjb.secondkill.mq.SecKillSender;
+import com.hxjb.secondkill.util.JsonUtils;
 import com.hxjb.secondkill.util.SnowflakeIdWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +12,8 @@ import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 @Service
@@ -29,7 +32,7 @@ public class SecondKillService {
     SecKillSender secKillSender;
 
 
-    public String buy(String goodsId, String userId) {
+    public String makeOrder(String goodsId, String userId) {
         String stockKey = keyPrefix + ":stock:" + goodsId;
         String buyListKey = keyPrefix + ":buyList:" + goodsId;
         return template.execute(new SessionCallback<String>() {
@@ -52,7 +55,7 @@ public class SecondKillService {
                     // 提交事务失败则进行重新提交请求
                     if (exec == null || exec.size() == 0) {
                         // logger.info("并发冲突执行抢购失败逻辑--------");
-                        buy(goodsId, userId);
+                        makeOrder(goodsId, userId);
                     } else {
                         for (Object o : exec) {
                             logger.info("抢购成功，还剩--->" + o);
@@ -60,7 +63,7 @@ public class SecondKillService {
                             long orderNum = idWorker.nextId();
                             template.opsForList().leftPush(buyListKey, userId);
                             // 添加默认订单状态到redis中
-                            template.opsForValue().set("orderState:" + userId + ":" + orderNum, "1");
+                            template.opsForValue().set("orderState:" + userId + ":" + goodsId, "1");
                             // 同步改异步，这块选择rabbitmq
                             Map<String, Object> payload = new HashMap<>();
                             payload.put("userId", userId);
@@ -90,8 +93,23 @@ public class SecondKillService {
         return true;
     }
 
-    public String getOrderState(String orderNum, String userId) {
-        String key = "orderState:" + userId + ":" + orderNum;
+    public String getOrderState(String goodsId, String userId) {
+        String key = "orderState:" + userId + ":" + goodsId;
         return template.opsForValue().get(key);
+    }
+
+    public boolean checkIsSelling(String goodsId) {
+        String info = template.opsForValue().get(keyPrefix + ":id:" + goodsId);
+        Map map = JsonUtils.fromJSON(info, Map.class);
+        Map<String, Object> infoMap = (Map<String, Object>) map.get("infoMap");
+        SimpleDateFormat sdf = new SimpleDateFormat("");
+        try {
+            long beginTime = sdf.parse(infoMap.get("begin_time") + "").getTime();
+            long endTime = sdf.parse(infoMap.get("end_time") + "").getTime();
+            return System.currentTimeMillis() >= beginTime && System.currentTimeMillis() <= endTime;
+        } catch (ParseException e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 }
